@@ -1,4 +1,4 @@
--- NETRIX HUB FLUXO PVP 3.0 (Visual Remodelado)
+-- NETRIX HUB FLUXO PVP 3.0
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
@@ -9,8 +9,8 @@ local BG_TRANSPARENCY = 0.88 -- 0 = imagem forte | 1 = invisível (ajuste a gost
 -- JANELA PRINCIPAL
 -- ==========================================
 local Window = Fluent:CreateWindow({
-    Title = "🔥 NETRIX HUB",
-    SubTitle = "Fluxo PVP 3.0  •  YouTube: @Netrix ofc",
+    Title = "🔥 NETRIX HUB 3.0",
+    SubTitle = "Fluxo PVP  •  YouTube: @Netrix ofc",
     TabWidth = 150,
     Size = UDim2.fromOffset(580, 400),
     Acrylic = true,
@@ -64,6 +64,7 @@ local Camera = workspace.CurrentCamera
 local Settings = {
     Aimbot = false,
     IgnoreDead = true,
+    IgnoreTeam = true,
     FOVSize = 100,
     ShowFOV = false,
 
@@ -73,9 +74,7 @@ local Settings = {
     ESP_Names = false,
     ESP_Player = false,
 
-    Spinbot = false,
-    EnableSpeed = false,
-    Speed = 16
+    Spinbot = false
 }
 
 local FOVCircle = Drawing.new("Circle")
@@ -135,7 +134,7 @@ FloatButton.MouseButton1Down:Connect(function()
 end)
 
 FloatButton.MouseButton1Up:Connect(function()
-    Services.TweenService:Create(FloatButton, tweenInfo, { Size = UDim2.fromOffset(72, 72) }):Play()
+    Services.TweenService:Create(FloatButton, tweenInfo, { Size = UDim2.fromOffset(64, 64) }):Play()
 end)
 
 FloatButton.MouseButton1Click:Connect(function()
@@ -145,32 +144,7 @@ FloatButton.MouseButton1Click:Connect(function()
 end)
 
 -- ==========================================
--- GERENCIAMENTO DE VELOCIDADE
--- ==========================================
-local function ApplySpeed()
-    local char = LocalPlayer.Character
-    if char then
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            humanoid.WalkSpeed = Settings.EnableSpeed and Settings.Speed or 16
-        end
-    end
-end
-
-Services.RunService.Stepped:Connect(function()
-    if Settings.EnableSpeed then
-        local char = LocalPlayer.Character
-        if char then
-            local humanoid = char:FindFirstChildOfClass("Humanoid")
-            if humanoid and humanoid.WalkSpeed ~= Settings.Speed then
-                humanoid.WalkSpeed = Settings.Speed
-            end
-        end
-    end
-end)
-
--- ==========================================
--- DETECÇÃO DE JOGADORES VIVOS
+-- DETECÇÃO DE JOGADORES VIVOS E DE TIME
 -- ==========================================
 local function IsPlayerAlive(player)
     if not player or player == LocalPlayer then return false end
@@ -193,13 +167,48 @@ local function IsPlayerAlive(player)
     return true
 end
 
+-- Checagem básica (usada quando "Ignorar Mortos" está desligado)
+local function IsBasicValid(player)
+    if not player or player == LocalPlayer then return false end
+
+    local char = player.Character
+    if not char then return false end
+
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local head = char:FindFirstChild("Head")
+    if not humanoid or not head then return false end
+
+    return humanoid.Health > 0
+end
+
+-- Verifica se o jogador é do mesmo time que você
+local function IsTeammate(player)
+    if not player or player == LocalPlayer then return false end
+
+    -- Jogos sem time definido: ninguém é parceiro
+    if not LocalPlayer.Team or not player.Team then return false end
+
+    return player.Team == LocalPlayer.Team
+end
+
 local function GetClosestPlayer()
     local Target = nil
     local MaxDistance = Settings.FOVSize
     local CenterScreen = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 
     for _, player in pairs(Services.Players:GetPlayers()) do
-        if IsPlayerAlive(player) then
+        local valid
+        if Settings.IgnoreDead then
+            valid = IsPlayerAlive(player)
+        else
+            valid = IsBasicValid(player)
+        end
+
+        if valid and Settings.IgnoreTeam and IsTeammate(player) then
+            valid = false
+        end
+
+        if valid then
             local head = player.Character.Head
             local headPos, onScreen = Camera:WorldToViewportPoint(head.Position)
             if onScreen then
@@ -370,29 +379,38 @@ end)
 Tabs.Combat:AddSection("🎯 Mira")
 
 Tabs.Combat:AddToggle("Aimbot", {
-    Title = "Aimbot",
+    Title = "🎯 Aimbot",
     Description = "Trava a mira na cabeça do alvo mais próximo",
     Default = false,
     Callback = function(v) Settings.Aimbot = v end
 })
 
 Tabs.Combat:AddToggle("IgnoreDead", {
-    Title = "Ignorar Mortos",
-    Description = "Não mira em jogadores que já morreram",
+    Title = "💀 Ignorar Mortos",
+    Description = "Não mira em jogadores mortos ou caídos no chão",
     Default = true,
     Callback = function(v) Settings.IgnoreDead = v end
+})
+
+Tabs.Combat:AddToggle("IgnoreTeam", {
+    Title = "🤝 Ignorar Parceiro do Time",
+    Description = "Não mira em quem é do seu time",
+    Default = true,
+    Callback = function(v) Settings.IgnoreTeam = v end
 })
 
 Tabs.Combat:AddSection("⭕ Campo de Visão (FOV)")
 
 Tabs.Combat:AddToggle("ShowFOV", {
-    Title = "Mostrar Círculo de FOV",
+    Title = "⭕ Mostrar Círculo de FOV",
+    Description = "Exibe o círculo da área de mira na tela",
     Default = false,
     Callback = function(v) Settings.ShowFOV = v end
 })
 
 Tabs.Combat:AddSlider("FOVSize", {
-    Title = "Tamanho do FOV",
+    Title = "📏 Tamanho do FOV",
+    Description = "Ajusta o tamanho da área de mira",
     Min = 30,
     Max = 500,
     Default = 100,
@@ -406,7 +424,7 @@ Tabs.Combat:AddSlider("FOVSize", {
 Tabs.Visuals:AddSection("👁️ ESP")
 
 Tabs.Visuals:AddToggle("ESPMaster", {
-    Title = "Ativar ESP (Master)",
+    Title = "👁️ Ativar ESP (Master)",
     Description = "Liga ou desliga todos os recursos visuais",
     Default = false,
     Callback = function(v) Settings.ESP_Master = v end
@@ -414,40 +432,45 @@ Tabs.Visuals:AddToggle("ESPMaster", {
 
 Tabs.Visuals:AddSection("✨ Estilos")
 
-Tabs.Visuals:AddToggle("ESPPlayer", { Title = "Chams (Realce de Player)", Default = false, Callback = function(v) Settings.ESP_Player = v end })
-Tabs.Visuals:AddToggle("ESPBoxes", { Title = "Caixas (Boxes)", Default = false, Callback = function(v) Settings.ESP_Boxes = v end })
-Tabs.Visuals:AddToggle("ESPLines", { Title = "Linhas", Default = false, Callback = function(v) Settings.ESP_Lines = v end })
-Tabs.Visuals:AddToggle("ESPNames", { Title = "Nomes", Default = false, Callback = function(v) Settings.ESP_Names = v end })
+Tabs.Visuals:AddToggle("ESPPlayer", {
+    Title = "✨ Chams (Realce de Player)",
+    Description = "Destaca o corpo dos jogadores",
+    Default = false,
+    Callback = function(v) Settings.ESP_Player = v end
+})
+
+Tabs.Visuals:AddToggle("ESPBoxes", {
+    Title = "📦 Caixas (Boxes)",
+    Description = "Desenha uma caixa em volta dos jogadores",
+    Default = false,
+    Callback = function(v) Settings.ESP_Boxes = v end
+})
+
+Tabs.Visuals:AddToggle("ESPLines", {
+    Title = "📏 Linhas",
+    Description = "Desenha uma linha da tela até cada jogador",
+    Default = false,
+    Callback = function(v) Settings.ESP_Lines = v end
+})
+
+Tabs.Visuals:AddToggle("ESPNames", {
+    Title = "🏷️ Nomes dos Jogadores (ESP Name)",
+    Description = "Mostra o nome de cada jogador em cima da cabeça",
+    Default = false,
+    Callback = function(v) Settings.ESP_Names = v end
+})
 
 -- ==========================================
 -- INTERFACE: ABA MOVIMENTO
 -- ==========================================
-Tabs.Movement:AddSection("⚡ Velocidade")
-
-Tabs.Movement:AddToggle("EnableSpeed", {
-    Title = "Ativar Velocidade",
-    Default = false,
-    Callback = function(v)
-        Settings.EnableSpeed = v
-        ApplySpeed()
-    end
-})
-
-Tabs.Movement:AddSlider("Speed", {
-    Title = "Valor da Velocidade",
-    Min = 16,
-    Max = 300,
-    Default = 16,
-    Rounding = 0,
-    Callback = function(v)
-        Settings.Speed = v
-        ApplySpeed()
-    end
-})
-
 Tabs.Movement:AddSection("🌀 Extras")
 
-Tabs.Movement:AddToggle("Spinbot", { Title = "Spinbot", Default = false, Callback = function(v) Settings.Spinbot = v end })
+Tabs.Movement:AddToggle("Spinbot", {
+    Title = "🌀 Spinbot",
+    Description = "Faz seu personagem girar sem parar",
+    Default = false,
+    Callback = function(v) Settings.Spinbot = v end
+})
 
 -- ==========================================
 -- INTERFACE: ABA DISCORD
@@ -460,12 +483,12 @@ Tabs.Discord:AddParagraph({
 })
 
 Tabs.Discord:AddButton({
-    Title = "Copiar Link do Discord",
+    Title = "📋 Copiar Link do Discord",
     Description = "https://discord.gg/yQyvXYM2CK",
     Callback = function()
         setclipboard("https://discord.gg/yQyvXYM2CK")
         Fluent:Notify({
-            Title = "NETRIX HUB",
+            Title = "NETRIX HUB 3.0",
             Content = "Link do Discord copiado!",
             Duration = 4
         })
@@ -475,7 +498,7 @@ Tabs.Discord:AddButton({
 Window:SelectTab(1)
 
 Fluent:Notify({
-    Title = "NETRIX HUB",
+    Title = "NETRIX HUB 3.0",
     Content = "Script carregado com sucesso! 🔥",
     Duration = 5
 })
