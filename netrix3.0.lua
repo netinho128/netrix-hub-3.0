@@ -63,8 +63,9 @@ local Camera = workspace.CurrentCamera
 
 local Settings = {
     Aimbot = false,
-    IgnoreDead = true,
-    IgnoreTeam = true,
+    AimPart = "Head", -- "Head" ou "Torso"
+    IgnoreDead = false,
+    IgnoreTeam = false,
     FOVSize = 100,
     ShowFOV = false,
 
@@ -144,10 +145,54 @@ FloatButton.MouseButton1Click:Connect(function()
 end)
 
 -- ==========================================
+-- MARCADOR DE MORTOS (IGNORA NA HORA QUE MORRE)
+-- ==========================================
+local DeadPlayers = {}
+
+local function HookPlayerDeath(player)
+    if player == LocalPlayer then return end
+
+    local function hookCharacter(char)
+        DeadPlayers[player] = nil
+
+        local humanoid = char:WaitForChild("Humanoid", 10)
+        if not humanoid then return end
+
+        humanoid.Died:Connect(function()
+            DeadPlayers[player] = true
+        end)
+
+        humanoid.HealthChanged:Connect(function(health)
+            if health <= 0 then
+                DeadPlayers[player] = true
+            end
+        end)
+    end
+
+    if player.Character then
+        task.spawn(hookCharacter, player.Character)
+    end
+
+    player.CharacterAdded:Connect(function(char)
+        task.spawn(hookCharacter, char)
+    end)
+
+    player.CharacterRemoving:Connect(function()
+        DeadPlayers[player] = true
+    end)
+end
+
+for _, player in pairs(Services.Players:GetPlayers()) do
+    HookPlayerDeath(player)
+end
+Services.Players.PlayerAdded:Connect(HookPlayerDeath)
+
+-- ==========================================
 -- DETECÇÃO DE JOGADORES VIVOS E DE TIME
 -- ==========================================
 local function IsPlayerAlive(player)
     if not player or player == LocalPlayer then return false end
+    if DeadPlayers[player] then return false end
 
     local char = player.Character
     if not char or not char:IsDescendantOf(workspace) then return false end
@@ -181,18 +226,44 @@ local function IsBasicValid(player)
     return humanoid.Health > 0
 end
 
--- Verifica se o jogador é do mesmo time que você
+-- Verifica se o jogador é do mesmo time que você (funciona em 1x1, 2x2, 3x3, 4x4...)
 local function IsTeammate(player)
     if not player or player == LocalPlayer then return false end
 
-    -- Jogos sem time definido: ninguém é parceiro
-    if not LocalPlayer.Team or not player.Team then return false end
+    -- 1) Sistema de times do Roblox
+    local myTeam, theirTeam = LocalPlayer.Team, player.Team
+    if myTeam and theirTeam then
+        return myTeam == theirTeam
+    end
 
-    return player.Team == LocalPlayer.Team
+    -- 2) Jogos que guardam o time em atributo
+    local myAttr, theirAttr = LocalPlayer:GetAttribute("Team"), player:GetAttribute("Team")
+    if myAttr ~= nil and theirAttr ~= nil then
+        return myAttr == theirAttr
+    end
+
+    -- 3) Cor do time
+    if not LocalPlayer.Neutral and not player.Neutral then
+        return LocalPlayer.TeamColor == player.TeamColor
+    end
+
+    -- Jogos sem time definido: ninguém é parceiro
+    return false
+end
+
+-- Parte do corpo onde o aimbot vai grudar (cabeça ou tronco)
+local function GetAimPart(char)
+    if Settings.AimPart == "Torso" then
+        return char:FindFirstChild("UpperTorso")
+            or char:FindFirstChild("Torso")
+            or char:FindFirstChild("HumanoidRootPart")
+    end
+    return char:FindFirstChild("Head")
 end
 
 local function GetClosestPlayer()
     local Target = nil
+    local TargetPart = nil
     local MaxDistance = Settings.FOVSize
     local CenterScreen = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 
@@ -209,18 +280,21 @@ local function GetClosestPlayer()
         end
 
         if valid then
-            local head = player.Character.Head
-            local headPos, onScreen = Camera:WorldToViewportPoint(head.Position)
-            if onScreen then
-                local distance = (Vector2.new(headPos.X, headPos.Y) - CenterScreen).Magnitude
-                if distance <= MaxDistance then
-                    MaxDistance = distance
-                    Target = player
+            local part = GetAimPart(player.Character)
+            if part then
+                local partPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                if onScreen then
+                    local distance = (Vector2.new(partPos.X, partPos.Y) - CenterScreen).Magnitude
+                    if distance <= MaxDistance then
+                        MaxDistance = distance
+                        Target = player
+                        TargetPart = part
+                    end
                 end
             end
         end
     end
-    return Target
+    return Target, TargetPart
 end
 
 -- ==========================================
@@ -261,6 +335,8 @@ local function RemoveESP(player)
         ESPDrawings[player] = nil
     end
 
+    DeadPlayers[player] = nil
+
     if player.Character and player.Character:FindFirstChild("NetrixChams") then
         player.Character.NetrixChams:Destroy()
     end
@@ -278,11 +354,11 @@ Services.RunService.RenderStepped:Connect(function()
     FOVCircle.Visible = Settings.ShowFOV
 
     if Settings.Aimbot then
-        local target = GetClosestPlayer()
-        if target and target.Character then
-            local head = target.Character:FindFirstChild("Head")
-            if head then
-                Camera.CFrame = CFrame.new(Camera.CFrame.Position, head.Position)
+        local target, part = GetClosestPlayer()
+        if target and part then
+            -- confere de novo se o alvo morreu antes de grudar
+            if not Settings.IgnoreDead or IsPlayerAlive(target) then
+                Camera.CFrame = CFrame.new(Camera.CFrame.Position, part.Position)
             end
         end
     end
@@ -297,9 +373,14 @@ Services.RunService.RenderStepped:Connect(function()
             if not ESPDrawings[player] then CreateESP(player) end
 
             local drawings = ESPDrawings[player]
-            local isAlive = IsPlayerAlive(player)
 
-            if Settings.ESP_Master and isAlive then
+            -- ESP só aparece em jogador vivo e que não seja do seu time
+            local showThis = IsPlayerAlive(player)
+            if showThis and Settings.IgnoreTeam and IsTeammate(player) then
+                showThis = false
+            end
+
+            if Settings.ESP_Master and showThis then
                 local char = player.Character
                 local cframe, size = char:GetBoundingBox()
                 local screenPos, onScreen = Camera:WorldToViewportPoint(cframe.Position)
@@ -380,22 +461,32 @@ Tabs.Combat:AddSection("🎯 Mira")
 
 Tabs.Combat:AddToggle("Aimbot", {
     Title = "🎯 Aimbot",
-    Description = "Trava a mira na cabeça do alvo mais próximo",
+    Description = "Trava a mira no alvo mais próximo",
     Default = false,
     Callback = function(v) Settings.Aimbot = v end
 })
 
+Tabs.Combat:AddDropdown("AimPart", {
+    Title = "🎯 Mirar em",
+    Description = "Escolha onde o aimbot gruda: cabeça ou tronco",
+    Values = { "Cabeça", "Tronco" },
+    Default = "Cabeça",
+    Callback = function(v)
+        Settings.AimPart = (v == "Tronco") and "Torso" or "Head"
+    end
+})
+
 Tabs.Combat:AddToggle("IgnoreDead", {
     Title = "💀 Ignorar Mortos",
-    Description = "Não mira em jogadores mortos ou caídos no chão",
-    Default = true,
+    Description = "Larga o alvo na hora que ele morre e não mira em caídos",
+    Default = false,
     Callback = function(v) Settings.IgnoreDead = v end
 })
 
 Tabs.Combat:AddToggle("IgnoreTeam", {
     Title = "🤝 Ignorar Parceiro do Time",
-    Description = "Não mira em quem é do seu time",
-    Default = true,
+    Description = "Aimbot e ESP ignoram quem é do seu time (só inimigos)",
+    Default = false,
     Callback = function(v) Settings.IgnoreTeam = v end
 })
 
